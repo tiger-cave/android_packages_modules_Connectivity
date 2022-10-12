@@ -19,6 +19,7 @@
 #include "BpfHandler.h"
 
 #include <android-base/logging.h>
+#include <cutils/properties.h>
 #include <netdutils/Status.h>
 
 #include "NetdUpdatablePublic.h"
@@ -29,10 +30,14 @@ int libnetd_updatable_init(const char* cg2_path) {
     android::base::InitLogging(/*argv=*/nullptr);
     LOG(INFO) << __func__ << ": Initializing";
 
-    android::netdutils::Status ret = sBpfHandler.init(cg2_path);
-    if (!android::netdutils::isOk(ret)) {
-        LOG(ERROR) << __func__ << ": Failed. " << ret.code() << " " << ret.msg();
-        return -ret.code();
+    char value[PROP_VALUE_MAX] = "";
+    bool ebpf_supported = __system_property_get("ro.kernel.ebpf.supported", value) != 0 || strcmp(value, "false") == 0;
+    if (ebpf_supported) {
+        android::netdutils::Status ret = sBpfHandler.init(cg2_path);
+        if (!android::netdutils::isOk(ret)) {
+            LOG(ERROR) << __func__ << ": Failed. " << ret.code() << " " << ret.msg();
+            return -ret.code();
+        }
     }
     return 0;
 }
