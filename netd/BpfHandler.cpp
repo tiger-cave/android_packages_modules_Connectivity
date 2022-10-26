@@ -88,7 +88,6 @@ static Status initPrograms(const char* cg2_path) {
             return Status("V+ platform with 32 bit kernel, version >= 5.16.0 is unsupported");
         }
     }
-
     // Linux 6.1 is highest version supported by U, starting with V new kernels,
     // ie. 6.2+ we are dropping various kernel/system userspace 32-on-64 hacks
     // (for example "ANDROID: xfrm: remove in_compat_syscall() checks").
@@ -160,8 +159,17 @@ Status BpfHandler::init(const char* cg2_path) {
     android::bpf::waitForProgsLoaded();
     ALOGI("BPF programs are loaded");
 
-    RETURN_IF_NOT_OK(initPrograms(cg2_path));
-    RETURN_IF_NOT_OK(initMaps());
+    const Status programsStatus = initPrograms(cg2_path);
+    if (!isOk(programsStatus)) {
+        ALOGE("BPF program initialization failed; continuing without BPF: %s",
+              programsStatus.msg().c_str());
+    }
+
+    const Status mapsStatus = initMaps();
+    if (!isOk(mapsStatus)) {
+        ALOGE("BPF map initialization failed; continuing without BPF: %s",
+              mapsStatus.msg().c_str());
+    }
 
     return netdutils::status::ok;
 }
