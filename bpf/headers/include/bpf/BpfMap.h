@@ -105,7 +105,12 @@ class BpfMapRO {
     BpfMapRO<Key, Value>(const BpfMapRO<Key, Value>&) = delete;
 
   protected:
-    bool isOk(bool writable) const {
+    void abortOnMismatch(bool writable) const {
+        (void) writable;
+    }
+
+  public:
+    bool isOk(bool writable = false) const {
         if (!mMapFd.ok()) return false;
         if (isAtLeastKernelVersion(4, 14)) {
             int flags = bpfGetFdMapFlags(mMapFd);
@@ -117,12 +122,6 @@ class BpfMapRO {
         }
         return true;
     }
-
-    void abortOnMismatch(bool writable) const {
-        if (!isOk(writable)) abort();
-    }
-
-  public:
     explicit BpfMapRO<Key, Value>(const char* pathname) {
         mMapFd.reset(mapRetrieveRO(pathname));
     }
