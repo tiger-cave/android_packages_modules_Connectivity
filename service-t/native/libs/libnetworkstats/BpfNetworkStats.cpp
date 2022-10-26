@@ -224,6 +224,8 @@ int parseBpfNetworkStatsDetail(std::vector<stats_line>* lines) {
         ALOGE("get map fd failed: %s", strerror(errno));
         return -errno;
     }
+
+    if (!configurationMap.isOk()) return -1;
     auto configuration = configurationMap.readValue(CURRENT_STATS_MAP_CONFIGURATION_KEY);
     if (!configuration.ok()) {
         ALOGE("Cannot read the old configuration from map: %s",

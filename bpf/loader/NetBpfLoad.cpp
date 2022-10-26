@@ -1418,6 +1418,7 @@ static int doLoad(char** argv, char * const envp[]) {
     const bool isAtLeastU = (effective_api_level >= __ANDROID_API_U__);
     const bool isAtLeastV = (effective_api_level >= __ANDROID_API_V__);
     const bool isAtLeastW = (effective_api_level >  __ANDROID_API_V__);  // TODO: switch to W
+    bool failed = false;
 
     const int first_api_level = GetIntProperty("ro.board.first_api_level", effective_api_level);
 
@@ -1613,7 +1614,7 @@ static int doLoad(char** argv, char * const envp[]) {
     //  which could otherwise fail with ENOENT during object pinning or renaming,
     //  due to ordering issues)
     for (const auto& location : locations) {
-        if (createSysFsBpfSubDir(location.prefix)) return 1;
+        if (createSysFsBpfSubDir(location.prefix)) failed = true;
     }
 
     // Note: there's no actual src dir for fs_bpf_loader .o's,
@@ -1621,32 +1622,34 @@ static int doLoad(char** argv, char * const envp[]) {
     // This is because this is primarily meant for triggering genfscon rules,
     // and as such this will likely always be the case.
     // Thus we need to manually create the /sys/fs/bpf/loader subdirectory.
-    if (createSysFsBpfSubDir("loader")) return 1;
+    if (createSysFsBpfSubDir("loader")) failed = true;
 
     // Load all ELF objects, create programs and maps, and pin them
     for (const auto& location : locations) {
         if (loadAllElfObjects(bpfloader_ver, location) != 0) {
-            ALOGE("=== CRITICAL FAILURE LOADING BPF PROGRAMS FROM %s ===", location.dir);
-            ALOGE("If this triggers reliably, you're probably missing kernel options or patches.");
-            ALOGE("If this triggers randomly, you might be hitting some memory allocation "
-                  "problems or startup script race.");
-            ALOGE("--- DO NOT EXPECT SYSTEM TO BOOT SUCCESSFULLY ---");
-            sleep(20);
-            return 2;
+            failed = true;
         }
     }
 
-    int key = 1;
-    int value = 123;
-    unique_fd map(
-            createMap(BPF_MAP_TYPE_ARRAY, sizeof(key), sizeof(value), 2, 0));
-    if (writeToMapEntry(map, &key, &value, BPF_ANY)) {
-        ALOGE("Critical kernel bug - failure to write into index 1 of 2 element bpf map array.");
-        return 1;
+    if (!failed) {
+        int key = 1;
+        int value = 123;
+        unique_fd map(createMap(BPF_MAP_TYPE_ARRAY, sizeof(key), sizeof(value), 2, 0));
+        if (writeToMapEntry(map, &key, &value, BPF_ANY)) {
+            ALOGE("Critical kernel bug - failure to write into index 1 of 2 element bpf map array.");
+            failed = true;
+        }
+    }
+
+    if (failed) {
+        ALOGE("=== CRITICAL FAILURE LOADING BPF PROGRAMS ===");
+        ALOGE("Continuing without BPF support");
     }
 
     // leave a flag that we're done
-    if (createSysFsBpfSubDir("netd_shared/mainline_done")) return 1;
+    if (createSysFsBpfSubDir("netd_shared/mainline_done")) {
+        ALOGE("Unable to create the networking BPF completion marker");
+    }
 
     // platform bpfloader will only succeed when run as root
     if (!runningAsRoot) {
