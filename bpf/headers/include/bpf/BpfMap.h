@@ -105,29 +105,26 @@ class BpfMapRO {
     BpfMapRO<Key, Value>(const BpfMapRO<Key, Value>&) = delete;
 
   protected:
-    void abortOnMismatch(bool writable) const {
-        if (!mMapFd.ok()) Abort(errno, "mMapFd %d is not valid", mMapFd.get());
+    bool isOk(bool writable) const {
+        if (!mMapFd.ok()) return false;
         if (isAtLeastKernelVersion(4, 14)) {
             int flags = bpfGetFdMapFlags(mMapFd);
-            if (flags < 0) Abort(errno, "bpfGetFdMapFlags fail: flags=%d", flags);
-            if (flags & BPF_F_WRONLY) Abort(0, "map is write-only (flags=0x%X)", flags);
-            if (writable && (flags & BPF_F_RDONLY))
-                Abort(0, "writable map is actually read-only (flags=0x%X)", flags);
-            int keySize = bpfGetFdKeySize(mMapFd);
-            if (keySize != sizeof(Key))
-                Abort(errno, "map key size mismatch (expected=%zu, actual=%d)",
-                      sizeof(Key), keySize);
-            int valueSize = bpfGetFdValueSize(mMapFd);
-            if (valueSize != sizeof(Value))
-                Abort(errno, "map value size mismatch (expected=%zu, actual=%d)",
-                      sizeof(Value), valueSize);
+            if (flags < 0) return false;
+            if (flags & BPF_F_WRONLY) return false;
+            if (writable && (flags & BPF_F_RDONLY)) return false;
+            if (bpfGetFdKeySize(mMapFd) != sizeof(Key)) return false;
+            if (bpfGetFdValueSize(mMapFd) != sizeof(Value)) return false;
         }
+        return true;
+    }
+
+    void abortOnMismatch(bool writable) const {
+        if (!isOk(writable)) abort();
     }
 
   public:
     explicit BpfMapRO<Key, Value>(const char* pathname) {
         mMapFd.reset(mapRetrieveRO(pathname));
-        abortOnMismatch(/* writable */ false);
     }
 
     Result<Key> getFirstKey() const {
@@ -310,6 +307,7 @@ class BpfMapRO {
     }
 
     bool isValid() const { return mMapFd.ok(); }
+    bool isOk() const { return isOk(/* writable */ false); }
 
     Result<bool> isEmpty() const {
         auto key = getFirstKey();
@@ -333,8 +331,9 @@ class BpfMapRW : public BpfMapRO<Key, Value> {
 
     explicit BpfMapRW<Key, Value>(const char* pathname) {
         mMapFd.reset(mapRetrieveRW(pathname));
-        abortOnMismatch(/* writable */ true);
     }
+
+    bool isOk() const { return BpfMapRO<Key, Value>::isOk(/* writable */ true); }
 
     // Function that tries to get map from a pinned path.
     [[clang::reinitializes]] Result<void> init(const char* path) {

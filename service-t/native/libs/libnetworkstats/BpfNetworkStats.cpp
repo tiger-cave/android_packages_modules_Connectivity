@@ -169,7 +169,13 @@ int bpfGetIfaceStatsInternal(const char* iface, StatsValue* stats,
 }
 
 int bpfGetIfaceStats(const char* iface, StatsValue* stats) {
-    return bpfGetIfaceStatsInternal(iface, stats, getIfaceStatsMap(), ifindex2name);
+    const auto& ifaceStatsMap = getIfaceStatsMap();
+    if (!ifaceStatsMap.isOk()) {
+        *stats = {};
+        ALOGE("get ifaceStats map fd failed");
+        return -ENODEV;
+    }
+    return bpfGetIfaceStatsInternal(iface, stats, ifaceStatsMap, ifindex2name);
 }
 
 int bpfGetIfIndexStatsInternal(uint32_t ifindex, StatsValue* stats,
@@ -184,7 +190,12 @@ int bpfGetIfIndexStatsInternal(uint32_t ifindex, StatsValue* stats,
 }
 
 int bpfGetIfIndexStats(int ifindex, StatsValue* stats) {
-    return bpfGetIfIndexStatsInternal(ifindex, stats, getIfaceStatsMap());
+    const auto& ifaceStatsMap = getIfaceStatsMap();
+    if (!ifaceStatsMap.isOk()) {
+        *stats = {};
+        return -ENODEV;
+    }
+    return bpfGetIfIndexStatsInternal(ifindex, stats, ifaceStatsMap);
 }
 
 stats_line populateStatsEntry(const StatsKey& statsKey, const StatsValue& statsEntry,
