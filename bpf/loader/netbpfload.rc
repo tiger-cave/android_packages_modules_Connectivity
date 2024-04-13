@@ -12,5 +12,6 @@
 service bpfloader /system/bin/false
     user root
     oneshot
-    reboot_on_failure reboot,netbpfload-missing
+    # BPF-less legacy devices must not reboot when the mainline loader is unavailable.
+    # reboot_on_failure reboot,netbpfload-missing
     updatable
