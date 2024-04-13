@@ -65,5 +65,7 @@ service bpfloader /system/bin/false
     #    'cannot prove return value is 0 or 1' or 'unsupported / unknown operation / helper',
     #    'invalid bpf_context access', etc.
     #
-    reboot_on_failure reboot,netbpfload-missing
+    # BPF-less legacy devices must not reboot when the mainline loader is unavailable.
+    # reboot_on_failure reboot,netbpfload-missing
+    # we're not really updatable, but want to be able to load bpf programs shipped in apexes
     updatable
