@@ -130,7 +130,6 @@ static void verifyClatPerms() {
 
 #undef V2
 
-    if (fatal) abort();
 }
 
 #undef V
