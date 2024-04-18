@@ -79,7 +79,7 @@ public class SocketNetlinkMonitor extends NetlinkMonitor implements AbstractSock
 
     @Override
     public boolean isSupported() {
-        return true;
+        return false;
     }
 
     @Override
