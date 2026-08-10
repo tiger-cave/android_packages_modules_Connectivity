@@ -110,7 +110,7 @@ class BpfMapRO {
     }
 
   public:
-    bool isOk(bool writable = false) const {
+    bool isOk(bool writable) const {
         if (!mMapFd.ok()) return false;
         if (isAtLeastKernelVersion(4, 14)) {
             int flags = bpfGetFdMapFlags(mMapFd);
