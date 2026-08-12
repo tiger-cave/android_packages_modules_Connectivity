@@ -244,8 +244,17 @@ Status BpfHandler::init(const char* cg2_path) {
     // TODO: should be: if (!modules::sdklevel::IsAtLeastW())
     if (android_get_device_api_level() <= __ANDROID_API_V__) waitForBpf();
 
-    RETURN_IF_NOT_OK(initPrograms(cg2_path));
-    RETURN_IF_NOT_OK(initMaps());
+    const Status programsStatus = initPrograms(cg2_path);
+    if (!isOk(programsStatus)) {
+        ALOGE("BPF program initialization failed; continuing without BPF: %s",
+              programsStatus.msg().c_str());
+    }
+
+    const Status mapsStatus = initMaps();
+    if (!isOk(mapsStatus)) {
+        ALOGE("BPF map initialization failed; continuing without BPF: %s",
+              mapsStatus.msg().c_str());
+    }
 
     return netdutils::status::ok;
 }
