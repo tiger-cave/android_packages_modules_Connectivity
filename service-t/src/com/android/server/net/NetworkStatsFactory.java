@@ -27,6 +27,7 @@ import android.net.NetworkStats;
 import android.net.UnderlyingNetworkInfo;
 import android.os.ServiceSpecificException;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
@@ -50,9 +51,14 @@ public class NetworkStatsFactory {
 
     private static final String TAG = "NetworkStatsFactory";
 
+    private static final String EBPF_SUPPORTED_PROPERTY = "ro.kernel.ebpf.supported";
+
     private final Context mContext;
 
     private final BpfNetMaps mBpfNetMaps;
+
+    // Kernels predating Android's eBPF accounting use xt_qtaguid cumulative counters instead.
+    private final boolean mUseBpfStats;
 
     /**
      * Guards persistent data access in this class
@@ -155,6 +161,7 @@ public class NetworkStatsFactory {
 
     @VisibleForTesting
     public NetworkStatsFactory(@NonNull Context ctx, Dependencies deps) {
+        mUseBpfStats = SystemProperties.getBoolean(EBPF_SUPPORTED_PROPERTY, true);
         mBpfNetMaps = deps.createBpfNetMaps(ctx);
         synchronized (mPersistentDataLock) {
             mPersistSnapshot = new NetworkStats(SystemClock.elapsedRealtime(), -1);
@@ -207,13 +214,20 @@ public class NetworkStatsFactory {
             // Take a defensive copy. mPersistSnapshot is mutated in some cases below
             final NetworkStats prev = mPersistSnapshot.clone();
 
-            requestSwapActiveStatsMapLocked();
-            // Stats are always read from the inactive map, so they must be read after the
-            // swap
-            final NetworkStats stats = mDeps.getNetworkStatsDetail();
-            // BPF stats are incremental; fold into mPersistSnapshot.
-            mPersistSnapshot.setElapsedRealtime(stats.getElapsedRealtime());
-            mPersistSnapshot.combineAllValues(stats);
+            final NetworkStats stats;
+            if (mUseBpfStats) {
+                requestSwapActiveStatsMapLocked();
+                // Stats are always read from the inactive map, so read them after the swap.
+                stats = mDeps.getNetworkStatsDetail();
+                // BPF stats are incremental; fold into mPersistSnapshot.
+                mPersistSnapshot.setElapsedRealtime(stats.getElapsedRealtime());
+                mPersistSnapshot.combineAllValues(stats);
+            } else {
+                // xt_qtaguid counters are cumulative since boot. Replacing the snapshot avoids
+                // counting the same traffic again on every poll.
+                stats = mDeps.getNetworkStatsDetail();
+                mPersistSnapshot = stats;
+            }
 
             NetworkStats adjustedStats = adjustForTunAnd464Xlat(mPersistSnapshot, prev, vpnArray);
 
