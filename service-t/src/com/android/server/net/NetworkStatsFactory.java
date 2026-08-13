@@ -27,6 +27,7 @@ import android.net.NetworkStats;
 import android.net.UnderlyingNetworkInfo;
 import android.os.ServiceSpecificException;
 import android.os.SystemClock;
+import android.os.SystemProperties;
 import android.util.ArraySet;
 import android.util.IndentingPrintWriter;
 import android.util.Log;
@@ -62,9 +63,14 @@ public class NetworkStatsFactory {
 
     private static final String TAG = "NetworkStatsFactory";
 
+    private static final String EBPF_SUPPORTED_PROPERTY = "ro.kernel.ebpf.supported";
+
     private final Context mContext;
 
     private final BpfNetMaps mBpfNetMaps;
+
+    // Kernels predating Android's eBPF accounting use xt_qtaguid cumulative counters instead.
+    private final boolean mUseBpfStats;
 
     /**
      * Guards persistent data access in this class
@@ -199,6 +205,7 @@ public class NetworkStatsFactory {
 
     @VisibleForTesting
     public NetworkStatsFactory(@NonNull Context ctx, Dependencies deps) {
+        mUseBpfStats = SystemProperties.getBoolean(EBPF_SUPPORTED_PROPERTY, true);
         mBpfNetMaps = deps.createBpfNetMaps(ctx);
         synchronized (mPersistentDataLock) {
             mPersistSnapshot = new NetworkStats(SystemClock.elapsedRealtime(), -1);
@@ -253,16 +260,31 @@ public class NetworkStatsFactory {
             // Take a reference. If this gets swapped out, we still have the old reference.
             final UnderlyingNetworkInfo[] vpnArray = mUnderlyingNetworkInfos;
 
-            requestSwapActiveStatsMapLocked();
-            // Stats are always read from the inactive map, so they must be read after the
-            // swap
-            final NetworkStats diff = mDeps.getNetworkStatsDetail();
+            final NetworkStats rawStats;
+            final NetworkStats diff;
+            if (mUseBpfStats) {
+                requestSwapActiveStatsMapLocked();
+                // BPF stats are incremental and must be read after swapping the active map.
+                rawStats = mDeps.getNetworkStatsDetail();
+                diff = rawStats;
+            } else {
+                // xt_qtaguid counters are cumulative since boot. Convert the new snapshot to a
+                // delta so the Android 16 adjustment accumulator does not count it repeatedly.
+                rawStats = mDeps.getNetworkStatsDetail();
+                diff = rawStats.subtract(mPersistSnapshot);
+            }
+
             // Filter based on UID tag set before merging.
             final NetworkStats filteredDiff = mSupportPerUidTagThrottling
                     ? filterStatsByUidTagSets(diff) : diff;
-            // BPF stats are incremental; fold into mPersistSnapshot.
-            mPersistSnapshot.setElapsedRealtime(diff.getElapsedRealtime());
-            mPersistSnapshot.combineAllValues(filteredDiff);
+
+            if (mUseBpfStats) {
+                // BPF stats are incremental; fold into mPersistSnapshot.
+                mPersistSnapshot.setElapsedRealtime(rawStats.getElapsedRealtime());
+                mPersistSnapshot.combineAllValues(filteredDiff);
+            } else {
+                mPersistSnapshot = rawStats;
+            }
 
             // Update the stats adjusted for TunAnd464Xlat
             // Apply 464xlat adjustments before VPN adjustments. If VPNs are using v4 on a v6 only

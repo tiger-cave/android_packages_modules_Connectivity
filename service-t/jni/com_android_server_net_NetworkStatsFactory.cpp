@@ -18,6 +18,8 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <stdio.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <vector>
@@ -30,6 +32,7 @@
 #include <nativehelper/ScopedLocalRef.h>
 #include <nativehelper/ScopedPrimitiveArray.h>
 
+#include <cutils/properties.h>
 #include <utils/Log.h>
 #include <utils/misc.h>
 
@@ -41,6 +44,10 @@ using android::bpf::parseBpfNetworkStatsDetail;
 using android::bpf::stats_line;
 
 namespace android {
+
+static constexpr const char* EBPF_SUPPORTED_PROPERTY = "ro.kernel.ebpf.supported";
+static constexpr const char* QTAGUID_IFACE_STATS = "/proc/net/xt_qtaguid/iface_stat_fmt";
+static constexpr const char* QTAGUID_UID_STATS = "/proc/net/xt_qtaguid/stats";
 
 static jclass gStringClass;
 
@@ -86,6 +93,87 @@ static jlongArray get_long_array(JNIEnv* env, jobject obj, jfieldID field, int s
         if (array) return array;
     }
     return env->NewLongArray(size);
+}
+
+static bool useBpfStats() {
+    char value[PROP_VALUE_MAX] = "";
+    return __system_property_get(EBPF_SUPPORTED_PROPERTY, value) == 0 ||
+            strcmp(value, "false") != 0;
+}
+
+static int legacyReadNetworkStatsDetail(std::vector<stats_line>* lines) {
+    FILE* fp = fopen(QTAGUID_UID_STATS, "re");
+    if (fp == nullptr) return -errno;
+
+    char buffer[512];
+    int lastIdx = 1;
+    while (fgets(buffer, sizeof(buffer), fp) != nullptr) {
+        stats_line line = {};
+        int idx;
+        uint64_t rawTag;
+        uint64_t rxBytes;
+        uint64_t rxPackets;
+        uint64_t txBytes;
+        uint64_t txPackets;
+        const int matched = sscanf(buffer,
+                "%d %31s 0x%" SCNx64 " %u %u %" SCNu64 " %" SCNu64
+                " %" SCNu64 " %" SCNu64,
+                &idx, line.iface, &rawTag, &line.uid, &line.set,
+                &rxBytes, &rxPackets, &txBytes, &txPackets);
+        if (matched != 9) continue;  // Includes the header line.
+        if (idx != lastIdx + 1) {
+            ALOGE("Inconsistent qtaguid index %d after %d", idx, lastIdx);
+            fclose(fp);
+            return -EINVAL;
+        }
+        lastIdx = idx;
+        line.tag = rawTag >> 32;
+        line.rxBytes = rxBytes;
+        line.rxPackets = rxPackets;
+        line.txBytes = txBytes;
+        line.txPackets = txPackets;
+        lines->push_back(line);
+    }
+
+    if (ferror(fp)) {
+        const int error = errno;
+        fclose(fp);
+        return error == 0 ? -EIO : -error;
+    }
+    return fclose(fp) == 0 ? 0 : -errno;
+}
+
+static int legacyReadNetworkStatsDev(std::vector<stats_line>* lines) {
+    FILE* fp = fopen(QTAGUID_IFACE_STATS, "re");
+    if (fp == nullptr) return -errno;
+
+    char buffer[512];
+    while (fgets(buffer, sizeof(buffer), fp) != nullptr) {
+        stats_line line = {};
+        line.uid = static_cast<uint32_t>(-1);
+        line.set = static_cast<uint32_t>(-1);
+        uint64_t rxBytes;
+        uint64_t rxPackets;
+        uint64_t txBytes;
+        uint64_t txPackets;
+        const int matched = sscanf(buffer,
+                "%31s %" SCNu64 " %" SCNu64 " %" SCNu64 " %" SCNu64,
+                line.iface, &rxBytes, &rxPackets, &txBytes, &txPackets);
+        if (matched == 5) {
+            line.rxBytes = rxBytes;
+            line.rxPackets = rxPackets;
+            line.txBytes = txBytes;
+            line.txPackets = txPackets;
+            lines->push_back(line);
+        }
+    }
+
+    if (ferror(fp)) {
+        const int error = errno;
+        fclose(fp);
+        return error == 0 ? -EIO : -error;
+    }
+    return fclose(fp) == 0 ? 0 : -errno;
 }
 
 static int statsLinesToNetworkStats(JNIEnv* env, jclass clazz, jobject stats,
@@ -179,7 +267,12 @@ static int statsLinesToNetworkStats(JNIEnv* env, jclass clazz, jobject stats,
 static int readNetworkStatsDetail(JNIEnv* env, jclass clazz, jobject stats) {
     std::vector<stats_line> lines;
 
-    if (parseBpfNetworkStatsDetail(&lines) < 0) return -1;
+    const int ret = useBpfStats() ? parseBpfNetworkStatsDetail(&lines)
+                                  : legacyReadNetworkStatsDetail(&lines);
+    if (ret < 0) {
+        ALOGE("No usable UID network stats backend: %s", strerror(-ret));
+        lines.clear();
+    }
 
     return statsLinesToNetworkStats(env, clazz, stats, lines);
 }
@@ -187,7 +280,12 @@ static int readNetworkStatsDetail(JNIEnv* env, jclass clazz, jobject stats) {
 static int readNetworkStatsDev(JNIEnv* env, jclass clazz, jobject stats) {
     std::vector<stats_line> lines;
 
-    if (parseBpfNetworkStatsDev(&lines) < 0) return -1;
+    const int ret = useBpfStats() ? parseBpfNetworkStatsDev(&lines)
+                                  : legacyReadNetworkStatsDev(&lines);
+    if (ret < 0) {
+        ALOGE("No usable interface network stats backend: %s", strerror(-ret));
+        lines.clear();
+    }
 
     return statsLinesToNetworkStats(env, clazz, stats, lines);
 }
