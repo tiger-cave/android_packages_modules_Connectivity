@@ -934,6 +934,8 @@ public class BpfNetMaps {
             final InetAddress address, final int protocol, final int remotePort,
             final boolean isAllowed) {
         throwIfPre25Q2("addLocalNetAccess is not available on pre-B devices");
+        if (sLocalNetAccessMap == null) return;
+
         if (iface == null) {
             Log.e(TAG, "Null iface, skip addLocalNetAccess for " + address);
             return;
@@ -971,6 +973,8 @@ public class BpfNetMaps {
     public void removeLocalNetAccess(final int lpmBitlen, @Nullable final String iface,
             final InetAddress address, final int protocol, final int remotePort) {
         throwIfPre25Q2("removeLocalNetAccess is not available on pre-B devices");
+        if (sLocalNetAccessMap == null) return;
+
         final int ifIndex;
         if (iface == null) {
             ifIndex = 0;
@@ -1007,6 +1011,8 @@ public class BpfNetMaps {
     public boolean getLocalNetAccess(final int lpmBitlen, @Nullable final String iface,
             final InetAddress address, final int protocol, final int remotePort) {
         throwIfPre25Q2("getLocalNetAccess is not available on pre-B devices");
+        if (sLocalNetAccessMap == null) return true;
+
         final int ifIndex;
         if (iface == null) {
             ifIndex = 0;
@@ -1037,6 +1043,8 @@ public class BpfNetMaps {
     @RequiresApi(Build.VERSION_CODES.CUR_DEVELOPMENT)
     public void addUidToLocalNetBlockMap(final int uid) {
         throwIfPre25Q2("addUidToLocalNetBlockMap is not available on pre-B devices");
+        if (sLocalNetBlockedUidMap == null) return;
+
         try {
             sLocalNetBlockedUidMap.updateEntry(new U32(uid), new Bool(true));
         } catch (ErrnoException e) {
@@ -1051,6 +1059,8 @@ public class BpfNetMaps {
     @RequiresApi(Build.VERSION_CODES.CUR_DEVELOPMENT)
     public boolean isUidBlockedFromUsingLocalNetwork(final int uid) {
         throwIfPre25Q2("isUidBlockedFromUsingLocalNetwork is not available on pre-B devices");
+        if (sLocalNetBlockedUidMap == null) return false;
+
         try {
             final Bool value = sLocalNetBlockedUidMap.getValue(new U32(uid));
             return value == null ? false : value.val;
@@ -1068,6 +1078,8 @@ public class BpfNetMaps {
     @RequiresApi(Build.VERSION_CODES.CUR_DEVELOPMENT)
     public void removeUidFromLocalNetBlockMap(final int uid) {
         throwIfPre25Q2("removeUidFromLocalNetBlockMap is not available on pre-B devices");
+        if (sLocalNetBlockedUidMap == null) return;
+
         try {
             sLocalNetBlockedUidMap.deleteEntry(new U32(uid));
         } catch (ErrnoException e) {

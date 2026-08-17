@@ -1817,7 +1817,7 @@ static int doLoad(char** argv, char * const envp[]) {
         if (!createDir("/sys/fs/bpf/loader")) failed = true;
     }
 
-    if (!failed && runningAsRoot) {  // implies U QPR3+ and kernel 4.14+
+    if (!failed && runningAsRoot && isAtLeastKernelVersion(4, 14)) {
         // There should not be any programs or maps yet
         errno = 0;
         uint32_t progId = bpfGetNextProgId(0);  // expect 0 with errno == ENOENT
@@ -1863,7 +1863,7 @@ static int doLoad(char** argv, char * const envp[]) {
             if (!createDir("/sys/fs/bpf/netd_shared/mainline_done")) return 37;
             return 0;
         }
-    } else {  // implies S/T with 4.9 kernel
+    } else {  // Legacy kernel without the BPF program/map ID UAPI.
         // nothing we can do.
     }
 

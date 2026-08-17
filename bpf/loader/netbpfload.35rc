@@ -65,5 +65,6 @@ service bpfloader /apex/com.android.tethering/bin/netbpfload
     #    'cannot prove return value is 0 or 1' or 'unsupported / unknown operation / helper',
     #    'invalid bpf_context access', etc.
     #
-    reboot_on_failure reboot,bpfloader-failed
+    # Legacy BPF-less devices must be allowed to continue booting.
+    # reboot_on_failure reboot,bpfloader-failed
     override
